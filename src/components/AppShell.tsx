@@ -13,7 +13,7 @@ const NAV = [
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { logout } = useAuth();
+  const { logout, email } = useAuth();
   const location = useLocation();
 
   // The gameplay screen is meant for a big gym display — render it chrome-free
@@ -48,13 +48,20 @@ export function AppShell({ children }: { children: ReactNode }) {
             ))}
           </nav>
 
-          <button
-            onClick={logout}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
-          >
-            <LogOut size={16} />
-            <span className="hidden sm:inline">Log out</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {email && (
+              <span className="hidden lg:inline text-xs text-text-muted max-w-[180px] truncate">
+                {email}
+              </span>
+            )}
+            <button
+              onClick={() => void logout()}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+            >
+              <LogOut size={16} />
+              <span className="hidden sm:inline">Log out</span>
+            </button>
+          </div>
         </div>
 
         {/* Mobile nav */}

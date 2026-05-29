@@ -8,19 +8,25 @@ import {
   Database,
   ShieldAlert,
   Cloud,
+  CloudOff,
+  Check,
+  LogOut,
 } from 'lucide-react';
 import { PageHeader } from '../components/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { Field, Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { useStore } from '../lib/storeContext';
+import { useAuth } from '../lib/authContext';
 import { exportData } from '../lib/store';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { playSound } from '../lib/sound';
 
 export function Settings() {
-  const { data, updateSettings, importAll } = useStore();
+  const { data, backend, synced, updateSettings, importAll } = useStore();
+  const auth = useAuth();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [importPreview, setImportPreview] = useState<string | null>(null);
@@ -28,7 +34,7 @@ export function Settings() {
   const [pwModal, setPwModal] = useState(false);
 
   function handleExport() {
-    const { filename, json } = exportData();
+    const { filename, json } = exportData(data);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -67,6 +73,42 @@ export function Settings() {
     <div>
       <PageHeader title="Settings" subtitle="Backups, security, and preferences." />
 
+      {/* Storage backend status */}
+      <Card className="mb-6 flex flex-wrap items-center gap-4">
+        <div
+          className={`grid place-items-center h-12 w-12 rounded-xl border shrink-0 ${
+            backend === 'firebase'
+              ? 'bg-success/15 border-success/30 text-success'
+              : 'bg-warning/15 border-warning/30 text-warning'
+          }`}
+        >
+          {backend === 'firebase' ? <Cloud size={24} /> : <CloudOff size={24} />}
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xl text-text-primary">
+              {backend === 'firebase' ? 'Cloud sync (Firebase)' : 'Local device storage'}
+            </h3>
+            {backend === 'firebase' && (
+              <Badge tone={synced ? 'success' : 'warning'}>
+                {synced ? (
+                  <>
+                    <Check size={12} /> Connected
+                  </>
+                ) : (
+                  'Connecting…'
+                )}
+              </Badge>
+            )}
+          </div>
+          <p className="text-text-muted text-sm mt-1">
+            {backend === 'firebase'
+              ? 'Members, classes, and history are synced to Firestore and shared across all approved trainers and devices in real time. Works offline and syncs when reconnected.'
+              : 'Data is stored only in this browser on this device. Configure Firebase (see README) for cross-device sync.'}
+          </p>
+        </div>
+      </Card>
+
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Data backup */}
         <Card>
@@ -75,8 +117,9 @@ export function Settings() {
             <h3 className="text-2xl text-text-primary">Data backup</h3>
           </div>
           <p className="text-text-muted text-sm mb-4">
-            Your data lives in this browser on this device only. Export regularly
-            so you can restore it or move to another device.
+            {backend === 'firebase'
+              ? 'Your data is already synced to the cloud. Exports are still handy for an extra offline backup or to move data between Firebase projects.'
+              : 'Your data lives in this browser on this device only. Export regularly so you can restore it or move to another device.'}
           </p>
           <div className="flex flex-wrap gap-3">
             <Button onClick={handleExport} icon={<Download size={16} />}>
@@ -127,18 +170,39 @@ export function Settings() {
           </Button>
         </Card>
 
-        {/* Security */}
+        {/* Security / account */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <KeyRound className="text-brand-light" size={22} />
-            <h3 className="text-2xl text-text-primary">Admin password</h3>
+            <h3 className="text-2xl text-text-primary">
+              {backend === 'firebase' ? 'Account' : 'Admin password'}
+            </h3>
           </div>
-          <p className="text-text-muted text-sm mb-4">
-            Change the password that gates this app on this device.
-          </p>
-          <Button variant="secondary" onClick={() => setPwModal(true)}>
-            Change password
-          </Button>
+          {backend === 'firebase' ? (
+            <>
+              <p className="text-text-muted text-sm mb-4">
+                Signed in as{' '}
+                <strong className="text-text-primary">{auth.email}</strong>. Manage
+                the password and approved trainers in the Firebase console.
+              </p>
+              <Button
+                variant="secondary"
+                icon={<LogOut size={16} />}
+                onClick={() => void auth.logout()}
+              >
+                Sign out
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-text-muted text-sm mb-4">
+                Change the password that gates this app on this device.
+              </p>
+              <Button variant="secondary" onClick={() => setPwModal(true)}>
+                Change password
+              </Button>
+            </>
+          )}
         </Card>
 
         {/* Honest limitations */}
@@ -148,28 +212,58 @@ export function Settings() {
             <h3 className="text-2xl text-text-primary">Good to know</h3>
           </div>
           <ul className="space-y-3 text-sm text-text-muted">
-            <li className="flex gap-2">
-              <ShieldAlert size={16} className="text-warning shrink-0 mt-0.5" />
-              <span>
-                The admin password keeps casual users out but is{' '}
-                <strong className="text-text-primary">not secure</strong>. A
-                technical user could bypass it on a static site.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <Database size={16} className="text-brand-light shrink-0 mt-0.5" />
-              <span>
-                Data is stored only in this browser. Clearing browser data or
-                switching devices loses it — <strong>export regularly</strong>.
-              </span>
-            </li>
-            <li className="flex gap-2">
-              <Cloud size={16} className="text-brand-light shrink-0 mt-0.5" />
-              <span>
-                Future upgrade: swap localStorage for Firebase Firestore (free
-                tier) for true cross-device sync. Not built yet.
-              </span>
-            </li>
+            {backend === 'firebase' ? (
+              <>
+                <li className="flex gap-2">
+                  <ShieldAlert size={16} className="text-success shrink-0 mt-0.5" />
+                  <span>
+                    Real authentication via Firebase Auth. Access is limited to{' '}
+                    <strong className="text-text-primary">approved trainer emails</strong>{' '}
+                    and enforced by Firestore security rules.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <Cloud size={16} className="text-success shrink-0 mt-0.5" />
+                  <span>
+                    Data lives in Firestore and is shared across approved
+                    trainers and devices, with offline support built in.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <Database size={16} className="text-brand-light shrink-0 mt-0.5" />
+                  <span>
+                    The whole dataset is stored in one document — plenty for a
+                    gym, but mind Firestore's 1&nbsp;MB document limit if history
+                    grows very large over many years.
+                  </span>
+                </li>
+              </>
+            ) : (
+              <>
+                <li className="flex gap-2">
+                  <ShieldAlert size={16} className="text-warning shrink-0 mt-0.5" />
+                  <span>
+                    The admin password keeps casual users out but is{' '}
+                    <strong className="text-text-primary">not secure</strong>. A
+                    technical user could bypass it on a static site.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <Database size={16} className="text-brand-light shrink-0 mt-0.5" />
+                  <span>
+                    Data is stored only in this browser. Clearing browser data or
+                    switching devices loses it — <strong>export regularly</strong>.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <Cloud size={16} className="text-brand-light shrink-0 mt-0.5" />
+                  <span>
+                    Configure Firebase (see README) for real accounts and true
+                    cross-device sync.
+                  </span>
+                </li>
+              </>
+            )}
           </ul>
         </Card>
       </div>

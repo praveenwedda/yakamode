@@ -49,6 +49,12 @@ function migrate(raw: unknown): AppData {
   return merged;
 }
 
+/** Normalise an arbitrary persisted blob (localStorage, import, or Firestore)
+ *  into a valid AppData, backfilling defaults and running migrations. */
+export function coerce(raw: unknown): AppData {
+  return migrate(raw);
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -71,8 +77,9 @@ export function saveData(data: AppData): void {
 }
 
 // ── Export / import (first-class backup feature, see spec §6.2) ──────────────
-export function exportData(): { filename: string; json: string } {
-  const data = loadData();
+/** Serialise app data for download. Pass the live in-memory data (works for
+ *  both the localStorage and Firestore backends); falls back to localStorage. */
+export function exportData(data: AppData = loadData()): { filename: string; json: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   return {
     filename: `anytime-fitness-canberra-backup-${stamp}.json`,

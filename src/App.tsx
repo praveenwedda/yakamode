@@ -39,9 +39,19 @@ function PageLoader() {
   );
 }
 
-/** Gates the whole app behind the admin login (convenience gate, see §6.1). */
+/** Gates the whole app behind authentication (Firebase Auth, or the
+ *  localStorage convenience gate when Firebase isn't configured). */
 function Protected() {
-  const { isAdmin } = useAuth();
+  const { ready, isAdmin } = useAuth();
+
+  if (!ready) {
+    return (
+      <div className="grid place-items-center min-h-screen text-text-muted">
+        <Loader2 className="animate-spin" size={32} />
+      </div>
+    );
+  }
+
   if (!isAdmin) return <Login />;
 
   return (
@@ -67,12 +77,12 @@ function Protected() {
 
 export function App() {
   return (
-    <StoreProvider>
-      <AuthProvider>
+    <AuthProvider>
+      <StoreProvider>
         <HashRouter>
           <Protected />
         </HashRouter>
-      </AuthProvider>
-    </StoreProvider>
+      </StoreProvider>
+    </AuthProvider>
   );
 }

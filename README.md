@@ -10,7 +10,9 @@ gym TV or projector. Members are the players — they don't log in, they just
 play and press their key when they finish an exercise.
 
 Built with **React + Vite + TypeScript**, **Tailwind CSS**, **Motion**,
-**Recharts**, and **react-router-dom** (HashRouter). 100% static — no backend.
+**Recharts**, and **react-router-dom** (HashRouter). Static front-end with an
+optional **Firebase** (Auth + Firestore) backend for real login and
+cross-device sync — falls back to localStorage when Firebase isn't configured.
 
 ---
 
@@ -94,23 +96,76 @@ Both rules are stored per-board (`board.rules`) so the alternatives
 
 ---
 
+## Firebase: real login + cross-device sync
+
+The app works out of the box in **localStorage mode** (data on one device, a
+convenience-gate password). To enable **real authentication and a shared,
+cross-device gym dataset**, connect Firebase — the app auto-detects the config
+and switches to cloud mode.
+
+This build is configured for:
+- **Email & password** sign-in (Firebase Auth).
+- **Approved-emails only** access (enforced in `firestore.rules`).
+- **One shared gym dataset** — all approved trainers see the same data, synced
+  in real time, stored at Firestore path `app/shared`. Offline-capable.
+
+### One-time Firebase setup
+
+1. Create a project at <https://console.firebase.google.com>.
+2. **Authentication → Sign-in method → Email/Password → Enable.**
+3. **Firestore Database → Create database** (Production mode is fine).
+4. **Firestore → Rules:** paste the contents of [`firestore.rules`](./firestore.rules),
+   **edit the `approvedEmails()` list** to your trainer email(s), and **Publish**.
+   (This is the real access gate.)
+5. **Project settings → Your apps → Web app (`</>`)** → copy the `firebaseConfig`
+   values.
+
+### Wire the config in
+
+- **Local dev:** copy `.env.example` to `.env` and fill in the `VITE_FIREBASE_*`
+  values (plus `VITE_ADMIN_EMAILS` for a friendly "not authorised" message).
+- **GitHub Pages deploy:** add each `VITE_FIREBASE_*` (and `VITE_ADMIN_EMAILS`)
+  as a repository secret under **Settings → Secrets and variables → Actions →
+  New repository secret**. The deploy workflow injects them at build time. Push
+  to `main` (or re-run the workflow) to rebuild with Firebase enabled.
+
+The Firebase **web config is not secret** — it ships to the browser by design;
+security comes from Auth + the Firestore rules.
+
+> **Note on storage shape:** the entire dataset is kept in a single Firestore
+> document (`app/shared`), mirroring the original single-blob model. That's well
+> within Firestore's 1 MB/document limit for a gym's worth of members, classes,
+> and history. If a single location accumulates many years of data, splitting
+> into per-entity collections would be the next step.
+
+The **Settings** page shows whether you're in Cloud (Firebase) or Local mode.
+
+---
+
 ## Honest limitations (please read)
 
-These are inherent to a free, backend-less static site. They're surfaced in the
-app's **Settings** page too.
+**With Firebase configured (Cloud mode):**
 
-1. **The admin login is a convenience gate, not real security.** Any check runs
-   in the browser, so a technical user could bypass it. It keeps casual users
-   out — don't reuse an important password. Real authentication would require a
-   backend (e.g. Firebase Auth) — **future work, not built**.
+1. **Real authentication** via Firebase Auth (email/password), with access
+   limited to **approved trainer emails** enforced by `firestore.rules`. Keep
+   that email list current — it's the real gate.
+2. **Data is shared and synced** across approved trainers/devices via Firestore,
+   with offline support. The whole dataset is one document (well under the 1 MB
+   limit for a gym; see the storage-shape note above).
+3. **Export / Import JSON** in Settings still works as an extra offline backup.
+
+**Without Firebase (Local mode — the default fallback):**
+
+1. **The admin login is a convenience gate, not real security.** The check runs
+   in the browser, so a technical user could bypass it. Don't reuse an important
+   password.
 2. **Data is stored only in this browser, on this device** (`localStorage`).
-   Clearing browser data or switching devices loses it. Because members and
-   history must last "for the lifetime of the app," **Export / Import JSON** is a
-   first-class feature in Settings — **export regularly** to back up and to move
-   between devices.
-3. **Optional future upgrade (not built):** swap the `localStorage` layer for
-   **Firebase Firestore (free tier)** for true cross-device sync. The data layer
-   is isolated behind `src/lib/store.ts` to make this swap feasible.
+   Clearing browser data or switching devices loses it — **export regularly**.
+3. Configure Firebase (above) to upgrade to real accounts + cross-device sync.
+
+The persistence layer is isolated behind `src/lib/store.ts` +
+`src/lib/firebase.ts`, and the store context (`src/lib/storeContext.tsx`)
+selects the backend automatically based on whether Firebase config is present.
 
 ---
 
@@ -122,10 +177,11 @@ src/
     board/           BoardView, Snake, Ladder (the SVG game graphics)
     ui/              Button, Card, Modal, Input, Badge, EmptyState
   lib/
-    store.ts         the ONLY module that touches localStorage
-    storeContext.tsx React context exposing typed CRUD over the store
-    authContext.tsx  admin login session state
-    auth.ts          password hashing (convenience gate)
+    store.ts         localStorage persistence + data normalisation
+    firebase.ts      Firebase Auth + Firestore init (cloud backend)
+    storeContext.tsx React context: typed CRUD, auto-selects local/cloud backend
+    authContext.tsx  auth state (Firebase email/password, or local gate)
+    auth.ts          password hashing (local convenience gate)
     board.ts         board geometry, validation, sample board
     engine.ts        pure move resolution (roll → move → transport → win)
     stats.ts         derived stats (computed on read, never stored)

@@ -8,12 +8,10 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import {
-  emptyData,
-  loadData,
-  parseImport,
-  saveData,
-} from './store';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { coerce, emptyData, loadData, parseImport, saveData } from './store';
+import { db, isFirebaseConfigured, SHARED_DOC } from './firebase';
+import { useAuth } from './authContext';
 import { uid } from './ids';
 import type {
   AppData,
@@ -25,8 +23,13 @@ import type {
   Member,
 } from '../types';
 
+export type BackendKind = 'firebase' | 'local';
+
 interface StoreContextValue {
   data: AppData;
+  backend: BackendKind;
+  /** Firestore connection state (firebase backend only). */
+  synced: boolean;
 
   // Members
   addMember: (input: Pick<Member, 'name' | 'displayColor' | 'avatarInitials'>) => Member;
@@ -58,69 +61,184 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(() => loadData());
+const WRITE_DEBOUNCE_MS = 600;
 
-  // Persist on every change (debounced via microtask coalescing is overkill
-  // here; writes are tiny and infrequent relative to gameplay frames).
-  const firstRender = useRef(true);
+export function StoreProvider({ children }: { children: ReactNode }) {
+  const backend: BackendKind = isFirebaseConfigured ? 'firebase' : 'local';
+  const { isAdmin } = useAuth();
+
+  // In local mode we seed from localStorage; in firebase mode we wait for the
+  // first Firestore snapshot (start empty).
+  const [data, setDataState] = useState<AppData>(() =>
+    backend === 'local' ? loadData() : emptyData(),
+  );
+  const [synced, setSynced] = useState(backend === 'local');
+
+  const dataRef = useRef<AppData>(data);
+  dataRef.current = data;
+
+  // ── Persistence plumbing ──────────────────────────────────────────────────
+  const pendingWrite = useRef<AppData | null>(null);
+  const writeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushFirestore = useCallback(async () => {
+    const next = pendingWrite.current;
+    pendingWrite.current = null;
+    if (writeTimer.current) {
+      clearTimeout(writeTimer.current);
+      writeTimer.current = null;
+    }
+    if (!next || !db) return;
+    try {
+      await setDoc(doc(db, SHARED_DOC.collection, SHARED_DOC.id), next);
+    } catch (err) {
+      console.error('Firestore write failed.', err);
+    }
+  }, []);
+
+  const persist = useCallback(
+    (next: AppData) => {
+      if (backend === 'local') {
+        saveData(next);
+        return;
+      }
+      // Debounce Firestore writes so rapid gameplay updates batch together.
+      pendingWrite.current = next;
+      if (writeTimer.current) clearTimeout(writeTimer.current);
+      writeTimer.current = setTimeout(flushFirestore, WRITE_DEBOUNCE_MS);
+    },
+    [backend, flushFirestore],
+  );
+
+  /** Update local state AND persist to the active backend. */
+  const commit = useCallback(
+    (next: AppData) => {
+      dataRef.current = next;
+      setDataState(next);
+      persist(next);
+    },
+    [persist],
+  );
+
+  /** Apply data that came FROM the backend (no re-persist). */
+  const applyExternal = useCallback((next: AppData) => {
+    dataRef.current = next;
+    setDataState(next);
+  }, []);
+
+  // ── Firestore subscription (firebase backend) ─────────────────────────────
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
+    if (backend !== 'firebase') return;
+    if (!isAdmin || !db) {
+      // Not signed in (or signed out): clear data, wait for auth.
+      applyExternal(emptyData());
+      setSynced(false);
       return;
     }
-    saveData(data);
-  }, [data]);
+    const ref = doc(db, SHARED_DOC.collection, SHARED_DOC.id);
+    const unsub = onSnapshot(
+      ref,
+      async (snap) => {
+        setSynced(true);
+        if (!snap.exists()) {
+          // First ever run — seed the shared document.
+          const init = emptyData();
+          applyExternal(init);
+          try {
+            await setDoc(ref, init);
+          } catch (err) {
+            console.error('Failed to initialise shared document.', err);
+          }
+          return;
+        }
+        // Skip echoes of our own not-yet-confirmed local writes so rapid edits
+        // (e.g. during gameplay) aren't reverted by a stale server snapshot.
+        if (snap.metadata.hasPendingWrites) return;
+        applyExternal(coerce(snap.data()));
+      },
+      (err) => {
+        console.error('Firestore subscription failed.', err);
+        setSynced(false);
+      },
+    );
+    return unsub;
+  }, [backend, isAdmin, applyExternal]);
+
+  // Flush any pending Firestore write before the tab unloads.
+  useEffect(() => {
+    if (backend !== 'firebase') return;
+    const onHide = () => {
+      if (pendingWrite.current) void flushFirestore();
+    };
+    window.addEventListener('beforeunload', onHide);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('beforeunload', onHide);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, [backend, flushFirestore]);
 
   // ── Members ────────────────────────────────────────────────────────────
-  const addMember: StoreContextValue['addMember'] = useCallback((input) => {
-    const member: Member = {
-      id: uid('mem'),
-      name: input.name.trim(),
-      displayColor: input.displayColor,
-      avatarInitials: input.avatarInitials,
-      createdAt: Date.now(),
-      archived: false,
-    };
-    setData((d) => ({ ...d, members: [...d.members, member] }));
-    return member;
-  }, []);
+  const addMember: StoreContextValue['addMember'] = useCallback(
+    (input) => {
+      const member: Member = {
+        id: uid('mem'),
+        name: input.name.trim(),
+        displayColor: input.displayColor,
+        avatarInitials: input.avatarInitials,
+        createdAt: Date.now(),
+        archived: false,
+      };
+      commit({ ...dataRef.current, members: [...dataRef.current.members, member] });
+      return member;
+    },
+    [commit],
+  );
 
   const updateMember: StoreContextValue['updateMember'] = useCallback(
     (id, patch) => {
-      setData((d) => ({
-        ...d,
-        members: d.members.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-      }));
+      commit({
+        ...dataRef.current,
+        members: dataRef.current.members.map((m) =>
+          m.id === id ? { ...m, ...patch } : m,
+        ),
+      });
     },
-    [],
+    [commit],
   );
 
   const setMemberArchived: StoreContextValue['setMemberArchived'] = useCallback(
     (id, archived) => {
-      setData((d) => ({
-        ...d,
-        members: d.members.map((m) => (m.id === id ? { ...m, archived } : m)),
-      }));
+      commit({
+        ...dataRef.current,
+        members: dataRef.current.members.map((m) =>
+          m.id === id ? { ...m, archived } : m,
+        ),
+      });
     },
-    [],
+    [commit],
   );
 
   // ── Boards ─────────────────────────────────────────────────────────────
-  const createBoard: StoreContextValue['createBoard'] = useCallback((board) => {
-    const created: Board = { ...board, id: uid('brd') };
-    setData((d) => ({ ...d, boards: [...d.boards, created] }));
-    return created;
-  }, []);
+  const createBoard: StoreContextValue['createBoard'] = useCallback(
+    (board) => {
+      const created: Board = { ...board, id: uid('brd') };
+      commit({ ...dataRef.current, boards: [...dataRef.current.boards, created] });
+      return created;
+    },
+    [commit],
+  );
 
   const updateBoard: StoreContextValue['updateBoard'] = useCallback(
     (id, patch) => {
-      setData((d) => ({
-        ...d,
-        boards: d.boards.map((b) => (b.id === id ? { ...b, ...patch } : b)),
-      }));
+      commit({
+        ...dataRef.current,
+        boards: dataRef.current.boards.map((b) =>
+          b.id === id ? { ...b, ...patch } : b,
+        ),
+      });
     },
-    [],
+    [commit],
   );
 
   const getBoard: StoreContextValue['getBoard'] = useCallback(
@@ -129,36 +247,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   // ── Classes ────────────────────────────────────────────────────────────
-  const createClass: StoreContextValue['createClass'] = useCallback((input) => {
-    const created: GymClass = { ...input, id: uid('cls'), createdAt: Date.now() };
-    setData((d) => ({ ...d, classes: [...d.classes, created] }));
-    return created;
-  }, []);
+  const createClass: StoreContextValue['createClass'] = useCallback(
+    (input) => {
+      const created: GymClass = { ...input, id: uid('cls'), createdAt: Date.now() };
+      commit({ ...dataRef.current, classes: [...dataRef.current.classes, created] });
+      return created;
+    },
+    [commit],
+  );
 
   const updateClass: StoreContextValue['updateClass'] = useCallback(
     (id, patch) => {
-      setData((d) => ({
-        ...d,
-        classes: d.classes.map((c) => (c.id === id ? { ...c, ...patch } : c)),
-      }));
+      commit({
+        ...dataRef.current,
+        classes: dataRef.current.classes.map((c) =>
+          c.id === id ? { ...c, ...patch } : c,
+        ),
+      });
     },
-    [],
+    [commit],
   );
 
-  const deleteClass: StoreContextValue['deleteClass'] = useCallback((id) => {
-    setData((d) => {
+  const deleteClass: StoreContextValue['deleteClass'] = useCallback(
+    (id) => {
+      const d = dataRef.current;
       const cls = d.classes.find((c) => c.id === id);
       const sessions = { ...d.sessions };
       delete sessions[id];
-      return {
+      commit({
         ...d,
         classes: d.classes.filter((c) => c.id !== id),
-        // Orphan the board too (boards are 1:1 with classes here).
         boards: cls ? d.boards.filter((b) => b.id !== cls.boardId) : d.boards,
         sessions,
-      };
-    });
-  }, []);
+      });
+    },
+    [commit],
+  );
 
   const getClass: StoreContextValue['getClass'] = useCallback(
     (id) => data.classes.find((c) => c.id === id),
@@ -173,35 +297,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const saveSession: StoreContextValue['saveSession'] = useCallback(
     (session) => {
-      setData((d) => ({
-        ...d,
-        sessions: { ...d.sessions, [session.classId]: session },
-      }));
+      commit({
+        ...dataRef.current,
+        sessions: { ...dataRef.current.sessions, [session.classId]: session },
+      });
     },
-    [],
+    [commit],
   );
 
   // ── Settings ───────────────────────────────────────────────────────────
   const updateSettings: StoreContextValue['updateSettings'] = useCallback(
     (patch) => {
-      setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }));
+      commit({
+        ...dataRef.current,
+        settings: { ...dataRef.current.settings, ...patch },
+      });
     },
-    [],
+    [commit],
   );
 
   // ── Backup ─────────────────────────────────────────────────────────────
-  const importAll: StoreContextValue['importAll'] = useCallback((jsonText) => {
-    const next = parseImport(jsonText);
-    setData(next);
-  }, []);
+  const importAll: StoreContextValue['importAll'] = useCallback(
+    (jsonText) => {
+      commit(parseImport(jsonText));
+    },
+    [commit],
+  );
 
-  const replaceAll: StoreContextValue['replaceAll'] = useCallback((next) => {
-    setData(next ?? emptyData());
-  }, []);
+  const replaceAll: StoreContextValue['replaceAll'] = useCallback(
+    (next) => {
+      commit(next ?? emptyData());
+    },
+    [commit],
+  );
 
   const value = useMemo<StoreContextValue>(
     () => ({
       data,
+      backend,
+      synced,
       addMember,
       updateMember,
       setMemberArchived,
@@ -220,6 +354,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       data,
+      backend,
+      synced,
       addMember,
       updateMember,
       setMemberArchived,
@@ -247,5 +383,4 @@ export function useStore(): StoreContextValue {
   return ctx;
 }
 
-// Exercise type re-export convenience for consumers building boards.
 export type { Exercise };
