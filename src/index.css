@@ -1,0 +1,181 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ════════════════════════════════════════════════════════════════════════
+   ANYTIME FITNESS – CANBERRA CITY  ·  Design tokens
+   Retune the entire palette from this one block.
+   ════════════════════════════════════════════════════════════════════════ */
+:root {
+  --bg-base: #0d0d17; /* near-black with a faint violet undertone */
+  --bg-surface: #15152a; /* elevated surfaces */
+  --bg-surface-2: #1e1e38; /* modals, dropdowns */
+  --border: rgba(255, 255, 255, 0.08);
+
+  --brand-purple: #7b2d8b; /* AF signature purple — primary brand colour */
+  --brand-purple-l: #a054c4; /* lighter purple — hover, secondary accents */
+  --brand-purple-d: #5a1f68; /* darker purple — pressed states, depth */
+  --purple-glow: rgba(123, 45, 139, 0.35); /* glows, halos, highlights */
+
+  --accent-white: #f4f2ff; /* off-white with the faintest violet cast */
+  --text-primary: #ede9ff;
+  --text-muted: #9490b0;
+
+  --success: #3dd68c; /* exercise complete, ladder-climbed */
+  --warning: #ffb84d; /* timer urgency state */
+  --danger: #f0476b; /* snake-slid, eliminated */
+
+  /* Player token palette (six vivid, distinct colours) */
+  --player-1: #9b4dbb; /* Violet */
+  --player-2: #e040fb; /* Magenta */
+  --player-3: #4087ff; /* Cobalt */
+  --player-4: #00bcd4; /* Teal */
+  --player-5: #ffc107; /* Amber */
+  --player-6: #ff7043; /* Coral */
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'Outfit', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Atmosphere: radial brand glow at the top + a faint grain texture overlay.
+       This gives the near-black background depth and AF purple warmth. */
+    background-image:
+      radial-gradient(
+        1200px 600px at 50% -10%,
+        rgba(90, 31, 104, 0.28),
+        transparent 70%
+      ),
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+    background-attachment: fixed, fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: 1.05;
+  }
+
+  /* Visible, on-brand focus ring for keyboard navigation (a11y). */
+  :focus-visible {
+    outline: 2px solid var(--brand-purple-l);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--brand-purple);
+    color: var(--accent-white);
+  }
+
+  /* Custom scrollbars to match the dark surface. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--bg-surface-2);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-purple-d);
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /* Brand wordmark used in the app header. */
+  .af-wordmark {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  /* Numeric display font — timers, dice results, big stats. */
+  .numeric {
+    font-family: 'Rajdhani', sans-serif;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  /* Frosted, elevated card surface. */
+  .surface-card {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.03),
+      rgba(255, 255, 255, 0) 120px
+    );
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+  }
+}
+
+/* ── Animations ──────────────────────────────────────────────────────────── */
+@keyframes ladder-shimmer {
+  0%,
+  100% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 0% 100%;
+  }
+}
+
+@keyframes float-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10vh) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
