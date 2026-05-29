@@ -137,16 +137,6 @@
 }
 
 /* ── Animations ──────────────────────────────────────────────────────────── */
-@keyframes ladder-shimmer {
-  0%,
-  100% {
-    background-position: 0% 0%;
-  }
-  50% {
-    background-position: 0% 100%;
-  }
-}
-
 @keyframes float-glow {
   0%,
   100% {
@@ -154,6 +144,17 @@
   }
   50% {
     opacity: 1;
+  }
+}
+
+/* Ladder specular shimmer — pulses the highlight on the metallic rails. */
+@keyframes ladder-gloss {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.85;
   }
 }
 

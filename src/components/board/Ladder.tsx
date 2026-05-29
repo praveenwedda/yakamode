@@ -72,10 +72,7 @@ export function Ladder({ ladder }: { ladder: LadderType }) {
         </filter>
       </defs>
 
-      <g
-        filter={`url(#ladderShadow-${uid})`}
-        style={{ animation: `ladder-shimmer 3.5s ease-in-out infinite` }}
-      >
+      <g filter={`url(#ladderShadow-${uid})`}>
         {/* Rungs (drawn under the rails) */}
         {rungs.map((r, i) => (
           <line
@@ -102,7 +99,7 @@ export function Ladder({ ladder }: { ladder: LadderType }) {
             strokeLinecap="round"
           />
         ))}
-        {/* Specular highlight along the inner edge of each rail */}
+        {/* Specular highlight along the inner edge of each rail (shimmers) */}
         {[left, right].map((r, i) => (
           <line
             key={`h${i}`}
@@ -110,9 +107,12 @@ export function Ladder({ ladder }: { ladder: LadderType }) {
             y1={r.y1}
             x2={r.x2}
             y2={r.y2}
-            stroke="rgba(255,255,255,0.5)"
+            stroke="rgba(255,255,255,0.7)"
             strokeWidth={1.5}
             strokeLinecap="round"
+            style={{
+              animation: `ladder-gloss 3.2s ease-in-out ${i * 0.4}s infinite`,
+            }}
           />
         ))}
       </g>
