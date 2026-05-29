@@ -12,9 +12,9 @@ import { Members } from './pages/Members';
 import { Classes } from './pages/Classes';
 import { Settings } from './pages/Settings';
 import { ClassDetail } from './pages/ClassDetail';
-import { MemberProfile } from './pages/MemberProfile';
 
 // Heavy pages are lazy-loaded to keep the initial bundle lean (spec §7.6).
+// MemberProfile pulls in Recharts, so it's split off too.
 const BoardBuilder = lazy(() =>
   import('./pages/BoardBuilder').then((m) => ({ default: m.BoardBuilder })),
 );
@@ -26,6 +26,9 @@ const Gameplay = lazy(() =>
 );
 const Results = lazy(() =>
   import('./pages/Results').then((m) => ({ default: m.Results })),
+);
+const MemberProfile = lazy(() =>
+  import('./pages/MemberProfile').then((m) => ({ default: m.MemberProfile })),
 );
 
 function PageLoader() {

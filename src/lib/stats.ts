@@ -3,7 +3,7 @@
 // redundant aggregates (spec §4).
 // ════════════════════════════════════════════════════════════════════════
 
-import type { GameSession, TurnRecord } from '../types';
+import type { GameSession, GymClass, TurnRecord } from '../types';
 
 export interface VolumeStats {
   reps: number; // total reps across 'reps'-mode exercises
@@ -101,4 +101,87 @@ export function formatVolume(v: VolumeStats): string {
   if (v.seconds > 0) parts.push(`${v.seconds} s`);
   parts.push(`${v.exerciseCount} exercise${v.exerciseCount === 1 ? '' : 's'}`);
   return parts.join(' · ');
+}
+
+// ── Cross-class history (member profile / improvement charts) ────────────────
+export interface MemberClassPoint {
+  classId: string;
+  name: string;
+  date: string;
+  createdAt: number;
+  reps: number;
+  seconds: number;
+  volumeTotal: number; // reps + seconds, a single "effort" number for trends
+  exerciseCount: number;
+  avgMs: number; // average completion time (lower = faster/fitter)
+  finalBox: number;
+  isWinner: boolean;
+}
+
+/** Every class a member has played, oldest → newest. */
+export function memberHistory(
+  classes: GymClass[],
+  sessions: Record<string, GameSession>,
+  memberId: string,
+): MemberClassPoint[] {
+  const points: MemberClassPoint[] = [];
+  for (const cls of classes) {
+    const session = sessions[cls.id];
+    if (!session || !session.turnOrder.includes(memberId)) continue;
+    // Only count classes that were actually played (have turns or finished).
+    if (session.turns.length === 0 && cls.status !== 'finished') continue;
+    const s = memberStatsForSession(session, memberId);
+    points.push({
+      classId: cls.id,
+      name: cls.name,
+      date: cls.date,
+      createdAt: cls.createdAt,
+      reps: s.volume.reps,
+      seconds: s.volume.seconds,
+      volumeTotal: s.volume.reps + s.volume.seconds,
+      exerciseCount: s.volume.exerciseCount,
+      avgMs: s.timing.avgMs,
+      finalBox: s.finalBox,
+      isWinner: s.isWinner,
+    });
+  }
+  return points.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export interface MemberLifetime {
+  classesPlayed: number;
+  totalReps: number;
+  totalSeconds: number;
+  totalExerciseMs: number;
+  wins: number;
+  fastestMs: number | null;
+  bestVolume: number;
+}
+
+export function memberLifetime(history: MemberClassPoint[]): MemberLifetime {
+  return history.reduce<MemberLifetime>(
+    (acc, p) => ({
+      classesPlayed: acc.classesPlayed + 1,
+      totalReps: acc.totalReps + p.reps,
+      totalSeconds: acc.totalSeconds + p.seconds,
+      totalExerciseMs: acc.totalExerciseMs + p.avgMs * p.exerciseCount,
+      wins: acc.wins + (p.isWinner ? 1 : 0),
+      fastestMs:
+        p.avgMs > 0
+          ? acc.fastestMs == null
+            ? p.avgMs
+            : Math.min(acc.fastestMs, p.avgMs)
+          : acc.fastestMs,
+      bestVolume: Math.max(acc.bestVolume, p.volumeTotal),
+    }),
+    {
+      classesPlayed: 0,
+      totalReps: 0,
+      totalSeconds: 0,
+      totalExerciseMs: 0,
+      wins: 0,
+      fastestMs: null,
+      bestVolume: 0,
+    },
+  );
 }
